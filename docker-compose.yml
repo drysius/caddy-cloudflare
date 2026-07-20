@@ -1,0 +1,82 @@
+# Stack para Portainer: todos os valores inline (sem .env).
+# Edite os campos marcados como OBRIGATÓRIO antes de subir.
+
+# Variáveis compartilhadas pelos dois serviços. Mude aqui, vale para ambos.
+x-cf: &cf-common
+  # OBRIGATÓRIO. Token único da Cloudflare. Permissões necessárias:
+  #   Zone:Zone:Read  +  Zone:DNS:Edit  +  Zone:SSL and Certificates:Edit
+  CF_API_TOKEN: ""
+  # Zonas gerenciadas, separadas por vírgula, em ordem de prioridade.
+  # A PRIMEIRA é a zona alvo padrão de novos custom hostnames.
+  # Vazio = todas as zonas visíveis ao token.
+  CF_DOMAINS: "multidesk.top"
+  # OBRIGATÓRIO. E-mail de contato do ACME (avisos de expiração).
+  ACME_EMAIL: ""
+  # Rede compartilhada com as stacks dos clientes. Deve casar com o bloco `networks`.
+  CADDY_INGRESS_NETWORKS: &net "multidesk_network"
+  # text | json
+  LOG_FORMAT: "json"
+  TZ: "America/Sao_Paulo"
+
+x-shared: &shared
+  restart: unless-stopped
+  networks:
+    - proxy
+
+services:
+  caddy:
+    <<: *shared
+    image: ghcr.io/drysius/caddy-cloudflare:latest
+    container_name: caddy
+    ports:
+      - 80:80
+      - 443:443
+      - 443:443/udp
+    environment:
+      <<: *cf-common
+      # O Caddyfile base é GERADO no start a partir das variáveis abaixo.
+      # Vazio = um wildcard de um nível por zona de CF_DOMAINS (ex.: *.multidesk.top).
+      # Preencha para controlar a lista, inclusive wildcards mais profundos —
+      # um wildcard do Caddy casa apenas UM label, então *.multidesk.top NÃO cobre
+      # algo.chat.multidesk.top.
+      WILDCARD_DOMAINS: "*.multidesk.top,*.chat.multidesk.top"
+      DNS_RESOLVERS: "1.1.1.1 1.0.0.1"
+      # CA alternativa do ACME (deixe vazio para Let's Encrypt).
+      # Ex. staging: https://acme-staging-v02.api.letsencrypt.org/directory
+      ACME_CA: ""
+      # "true" imprime o Caddyfile gerado no log ao subir. Útil para depurar.
+      CADDY_PRINT_CADDYFILE: "false"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - caddy_data:/data
+      - caddy_config:/config
+
+  cf-reconciler:
+    <<: *shared
+    image: ghcr.io/drysius/cf-hostname-reconciler:latest
+    container_name: cf-reconciler
+    environment:
+      <<: *cf-common
+      # Reconciliação periódica de segurança, em segundos (eventos do Docker
+      # disparam antes disso).
+      RECONCILE_INTERVAL: "3600"
+      # Trava: aborta a fase de deleção se passar de N deleções numa rodada...
+      MAX_DELETIONS_PER_RUN: "5"
+      # ...ou se as deleções passarem desta fração do total na Cloudflare.
+      MAX_DELETION_RATIO: "0.3"
+      # "true" = só loga o plano, não executa nada. Recomendado na primeira subida.
+      DRY_RUN: "false"
+      LOG_LEVEL: "INFO"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    depends_on:
+      - caddy
+
+networks:
+  proxy:
+    name: *net
+    external: true
+
+volumes:
+  caddy_data: {}
+  caddy_config: {}
