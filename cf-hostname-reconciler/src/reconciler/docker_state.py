@@ -20,7 +20,7 @@ SCHEME = re.compile(r"^[a-z][a-z0-9+.-]*://")
 ZONE_LABEL = "cf_zone"
 
 
-class DockerUnavailable(RuntimeError):
+class DockerUnavailableError(RuntimeError):
     pass
 
 
@@ -86,19 +86,19 @@ class DockerState:
             try:
                 self._client = docker.from_env()
             except DockerException as exc:
-                raise DockerUnavailable(f"cannot reach the Docker socket: {exc}") from exc
+                raise DockerUnavailableError(f"cannot reach the Docker socket: {exc}") from exc
         return self._client
 
     def desired(self, internal_suffixes: tuple[str, ...]) -> dict[str, DesiredHostname]:
         """Map hostname -> desired entry for every running container.
 
-        Raises DockerUnavailable so the caller can trip the safety latch instead of
+        Raises DockerUnavailableError so the caller can trip the safety latch instead of
         mistaking an unreadable socket for "no hostnames wanted".
         """
         try:
             containers = self.client.containers.list(filters={"status": "running"})
         except DockerException as exc:
-            raise DockerUnavailable(f"failed to list containers: {exc}") from exc
+            raise DockerUnavailableError(f"failed to list containers: {exc}") from exc
 
         found: dict[str, DesiredHostname] = {}
         for container in containers:

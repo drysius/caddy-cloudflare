@@ -5,7 +5,8 @@ from __future__ import annotations
 import logging
 import time
 from dataclasses import dataclass
-from typing import Any, Iterator
+from collections.abc import Iterator
+from typing import Any
 
 import httpx
 
@@ -102,10 +103,13 @@ class CloudflareClient:
 
         raise CloudflareError(f"{method} {path} failed after {MAX_ATTEMPTS} attempts: {last_error}")
 
-    def _paginate(self, path: str, params: dict[str, Any] | None = None) -> Iterator[dict[str, Any]]:
+    def _paginate(
+        self, path: str, params: dict[str, Any] | None = None
+    ) -> Iterator[dict[str, Any]]:
         page = 1
         while True:
-            body = self._request("GET", path, params={**(params or {}), "page": page, "per_page": 50})
+            merged = {**(params or {}), "page": page, "per_page": 50}
+            body = self._request("GET", path, params=merged)
             results = body.get("result") or []
             yield from results
             info = body.get("result_info") or {}

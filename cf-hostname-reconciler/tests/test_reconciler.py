@@ -6,7 +6,7 @@ import pytest
 
 from reconciler.cloudflare import CustomHostname, Zone
 from reconciler.config import Config
-from reconciler.docker_state import DockerUnavailable
+from reconciler.docker_state import DockerUnavailableError
 from reconciler.health import HealthState
 from reconciler.main import Reconciler
 from reconciler.zones import ZoneRegistry
@@ -51,7 +51,7 @@ class FakeDocker:
 
     def desired(self, suffixes):
         if self._fail:
-            raise DockerUnavailable("socket gone")
+            raise DockerUnavailableError("socket gone")
         return {h: e for h, e in self._desired.items() if not any(h.endswith(s) for s in suffixes)}
 
 

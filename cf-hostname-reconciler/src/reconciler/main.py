@@ -13,7 +13,7 @@ from docker.errors import DockerException
 from .cloudflare import CloudflareClient, CloudflareError, CustomHostname
 from .config import Config, ConfigError
 from .diff import Plan, build_plan
-from .docker_state import DockerState, DockerUnavailable
+from .docker_state import DockerState, DockerUnavailableError
 from .health import HealthState, start_health_server
 from .logging_setup import setup_logging
 from .safety import evaluate
@@ -74,7 +74,7 @@ class Reconciler:
         docker_ok = True
         try:
             desired = self.docker.desired(suffixes)
-        except DockerUnavailable as exc:
+        except DockerUnavailableError as exc:
             docker_ok = False
             desired = {}
             log.error("docker state unavailable", extra={"error": str(exc)})
@@ -198,7 +198,7 @@ def _watch_events(reconciler: Reconciler, trigger: threading.Event, stop: thread
                         },
                     )
                     trigger.set()
-        except (DockerException, DockerUnavailable, OSError) as exc:
+        except (DockerException, DockerUnavailableError, OSError) as exc:
             if stop.is_set():
                 return
             log.error("docker event stream lost, retrying", extra={"error": str(exc)})
