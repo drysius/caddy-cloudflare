@@ -69,10 +69,12 @@ endpoint.)
 
 ## Full SSL mode
 
-The zone runs in **Full**. Caddy uses `tls internal` for customer hostnames: Cloudflare's
-edge presents the valid cert (DV issued via `ssl.method=http`) and the CF→origin leg is
-encrypted with the internal cert. The reconciler does **not** manage origin certificates —
-it only creates/removes custom hostnames with `ssl: { method: "http", type: "dv" }`.
+The zone runs in **Full** — **not Full (Strict)**. Caddy uses `tls internal` for customer
+hostnames: Cloudflare's edge presents the valid cert (DV issued via `ssl.method=http`) and
+the CF→origin leg is encrypted with the internal cert. Full (Strict) would reject the
+self-signed internal cert with a cert-invalid error; use a Cloudflare Origin Certificate if
+you need Strict. The reconciler does **not** manage origin certificates — it only
+creates/removes custom hostnames with `ssl: { method: "http", type: "dv" }`.
 
 ## Configuration
 

@@ -71,6 +71,12 @@ logged; label-driven routing still works.
   Cloudflare's edge presents the DV cert; the zone is in **Full**, and Caddy answers the
   origin with `tls internal`. No public cert is issued at the origin.
 
+> **Use Full, not Full (Strict).** `tls internal` presents Caddy's self-signed root, which
+> Cloudflare does not trust — Full (Strict) rejects it with a cert-invalid error. Full
+> (non-strict) encrypts the CF→origin leg without validating the cert, which is what
+> `tls internal` needs. For Full (Strict), swap `tls internal` for a Cloudflare Origin
+> Certificate (which Cloudflare trusts).
+
 ## Setup (Portainer)
 
 There is no `.env`: every value is inline in `docker-compose.yml`, and **you only edit the
