@@ -43,6 +43,13 @@ x-cf: &cf-common
   # "true" only logs the plan, changes nothing. Recommended on the first deploy.
   DRY_RUN: "false"
 
+  # --- Cloudflared tunnel (optional) ---
+  # Connector token from Zero Trust → Networks → Tunnels → your tunnel.
+  # Empty = the cloudflared service just idles/errors; leave empty to not use it.
+  # In the tunnel's Public Hostnames, point routes at http://caddy:80
+  # (e.g. clients.example.com = fallback origin, and *.example.com if you want it).
+  TUNNEL_TOKEN: ""
+
   # --- Shared ---
   LOG_FORMAT: "json"   # text | json
   LOG_LEVEL: "INFO"
@@ -84,6 +91,19 @@ services:
       <<: *cf-common
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
+    depends_on:
+      - caddy
+
+  # Outbound-only tunnel to Cloudflare's edge. No exposed ports; reaches Caddy
+  # over the internal `proxy` network at http://caddy:80. `tunnel run` picks up
+  # TUNNEL_TOKEN from the environment. Remove this service if you don't use it.
+  cloudflared:
+    <<: *shared
+    image: cloudflare/cloudflared:latest
+    container_name: cloudflared
+    command: tunnel --no-autoupdate run
+    environment:
+      <<: *cf-common
     depends_on:
       - caddy
 
