@@ -20,21 +20,16 @@ jobs:
         working-directory: cf-hostname-reconciler
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-node@v4
         with:
-          python-version: "3.12"
-          cache: pip
-          cache-dependency-path: cf-hostname-reconciler/pyproject.toml
-      - run: pip install -e ".[dev]"
+          node-version: "22"
 
-      - name: ruff
-        run: ruff check --output-format=github src tests tools
+      - name: syntax check
+        run: for f in src/*.js; do node --check "$f"; done
 
-      - name: pytest
-        run: |
-          pytest -v \
-            --junitxml=junit.xml \
-            --cov=reconciler --cov-report=term-missing --cov-report=xml
+      - name: test
+        run: node --test --test-reporter=spec --test-reporter-destination=stdout
+              --test-reporter=junit --test-reporter-destination=junit.xml
 
       # Renders the per-test results as a check run with annotations on failures.
       - name: publish test report
@@ -42,22 +37,16 @@ jobs:
         if: always()
         with:
           report_paths: cf-hostname-reconciler/junit.xml
-          check_name: pytest results
+          check_name: node test results
           include_passed: true
           detailed_summary: true
-
-      - name: coverage summary
-        if: always()
-        run: python tools/coverage_summary.py >> "$GITHUB_STEP_SUMMARY"
 
       - name: upload reports
         uses: actions/upload-artifact@v4
         if: always()
         with:
           name: test-reports
-          path: |
-            cf-hostname-reconciler/junit.xml
-            cf-hostname-reconciler/coverage.xml
+          path: cf-hostname-reconciler/junit.xml
           retention-days: 14
 
   images:

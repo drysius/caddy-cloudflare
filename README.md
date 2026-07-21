@@ -107,7 +107,7 @@ pelo wildcard e **nunca** é enviado à API de custom hostnames.
 
 ## CI
 
-`.github/workflows/build.yml`: lint (ruff) + testes (pytest) do reconciliador → build
+`.github/workflows/build.yml`: syntax check + testes (`node --test`) do reconciliador → build
 multi-arch (`linux/amd64`, `linux/arm64`) das duas imagens → push para GHCR
 (`latest` na `main`, semver nas tags `v*`, SHA curto sempre).
 

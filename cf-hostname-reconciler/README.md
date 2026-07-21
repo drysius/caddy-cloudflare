@@ -62,8 +62,9 @@ My Profile → API Tokens → Create Token → Custom token:
 - `Zone` → `SSL and Certificates` → **Edit** (custom hostnames)
 - Zone Resources: `Include` → `All zones` (ou as zonas específicas)
 
-Verifique com `GET /user/tokens/verify` — o serviço já faz isso no boot e sai com
-código 2 se o token for inválido.
+No boot o serviço faz um `GET /zones` como teste de liveness e sai com código 2 se
+falhar. (Não usa `/user/tokens/verify`: alguns tokens válidos com escopo restrito
+são rejeitados por esse endpoint.)
 
 ## SSL em modo Full
 
@@ -104,12 +105,12 @@ GET http://localhost:8080/healthz
 
 ```json
 {
-  "last_success_ts": 1721480000.0,
+  "lastSuccessTs": 1721480000000,
   "added": 3, "deleted": 1, "errors": 0,
-  "latch_tripped": false, "latch_reason": "",
+  "latchTripped": false, "latchReason": "",
   "zones": ["multidesk.top"],
-  "desired_count": 12, "actual_count": 12,
-  "dry_run": false, "healthy": true
+  "desiredCount": 12, "actualCount": 12,
+  "dryRun": false, "healthy": true
 }
 ```
 
@@ -139,10 +140,11 @@ services:
 
 ## Desenvolvimento
 
+Node 20+ (ESM, **sem dependências de runtime** — `fetch` nativo, socket do Docker via
+`node:http`, healthz via `node:http`). Testes com o runner embutido do Node.
+
 ```bash
-pip install -e ".[dev]"
-ruff check src tests
-pytest -q
+node --test
 docker build -t cf-hostname-reconciler .
 ```
 

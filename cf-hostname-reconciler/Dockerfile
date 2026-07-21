@@ -1,22 +1,16 @@
-FROM python:3.12-slim AS builder
+FROM node:22-alpine
 
-WORKDIR /build
-COPY pyproject.toml README.md ./
+WORKDIR /app
+
+# No runtime dependencies: only the source and manifest are needed.
+COPY package.json ./
 COPY src ./src
-RUN pip install --no-cache-dir --prefix=/install .
 
-FROM python:3.12-slim
-
-RUN useradd --system --uid 10001 --no-create-home reconciler
-COPY --from=builder /install /usr/local
-
-ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1
-USER 10001
+ENV NODE_ENV=production
+USER node
 EXPOSE 8080
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-    CMD python -c "import urllib.request,sys,json; \
-d=json.load(urllib.request.urlopen('http://127.0.0.1:8080/healthz',timeout=4)); \
-sys.exit(0 if d['healthy'] else 1)"
+    CMD node -e "fetch('http://127.0.0.1:8080/healthz').then(r=>r.json()).then(d=>process.exit(d.healthy?0:1)).catch(()=>process.exit(1))"
 
-ENTRYPOINT ["python", "-m", "reconciler"]
+ENTRYPOINT ["node", "src/index.js"]

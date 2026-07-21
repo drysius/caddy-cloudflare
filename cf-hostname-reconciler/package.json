@@ -1,0 +1,18 @@
+{
+  "name": "cf-hostname-reconciler",
+  "version": "0.1.0",
+  "description": "Sync Cloudflare for SaaS custom hostnames with caddy-docker-proxy labels",
+  "type": "module",
+  "private": true,
+  "engines": {
+    "node": ">=20"
+  },
+  "bin": {
+    "cf-hostname-reconciler": "src/index.js"
+  },
+  "scripts": {
+    "start": "node src/index.js",
+    "test": "node --test --experimental-test-coverage",
+    "lint": "node --check src/index.js"
+  }
+}
