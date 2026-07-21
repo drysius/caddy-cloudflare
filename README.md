@@ -1,18 +1,37 @@
 # caddy-cloudflare
 
-Stack central: **Caddy** (roteamento por labels) + **Cloudflare for SaaS** (custom hostnames
-dos domínios de clientes, criados e removidos automaticamente).
+A central **Caddy** reverse proxy (label-driven, via `caddy-docker-proxy`) plus a small
+sidecar that keeps **Cloudflare for SaaS** custom hostnames in sync with your running
+containers — so customer domains get provisioned and de-provisioned automatically.
 
-| Componente | Imagem | O que faz |
+| Component | Image | What it does |
 |---|---|---|
-| [`caddy/`](caddy) | `ghcr.io/<owner>/caddy-cloudflare` | Caddy compilado com `caddy-docker-proxy` + `caddy-dns/cloudflare` |
-| [`cf-hostname-reconciler/`](cf-hostname-reconciler) | `ghcr.io/<owner>/cf-hostname-reconciler` | Sincroniza custom hostnames da CF com os labels `caddy_*` |
+| [`caddy/`](caddy) | `ghcr.io/drysius/caddy-cloudflare` | Caddy built with `caddy-docker-proxy` + `caddy-dns/cloudflare` |
+| [`cf-hostname-reconciler/`](cf-hostname-reconciler) | `ghcr.io/drysius/cf-hostname-reconciler` | Syncs CF custom hostnames with `caddy_*` labels |
 
-## Por que um Caddy customizado
+## The problem this solves
 
-A imagem oficial `lucaslorentz/caddy-docker-proxy` **não** traz o módulo DNS da Cloudflare.
-Ele é necessário para o wildcard interno `*.multidesk.top`: HTTP-01 não emite wildcard, e o
-registro está proxied atrás da Cloudflare. Então compilamos com `xcaddy`:
+You run one Docker host serving many customers. Each customer stack declares its domains
+in `caddy_*` labels; a central Caddy routes them. Two things have to happen for a customer
+domain like `docs.customer.com` to work end to end:
+
+1. **Edge**: it must exist as a **custom hostname** in your Cloudflare for SaaS zone (so
+   Cloudflare terminates TLS at the edge with a valid cert). Doing this by hand for every
+   onboard/offboard does not scale.
+2. **Origin**: Caddy must route it. With the zone in **Full** SSL mode, Caddy answers the
+   origin leg with `tls internal` — no public cert needed at the origin.
+
+The reconciler watches Docker and reconciles (1) automatically: a label appears → the
+custom hostname is created within seconds; the label disappears → it is removed. Caddy
+handles (2). Your own wildcard domains (e.g. `*.example.com`) stay plain DNS and are never
+turned into custom hostnames.
+
+## Why a custom Caddy build
+
+The official `lucaslorentz/caddy-docker-proxy` image does **not** include the Cloudflare
+DNS module, which is required to issue the internal wildcard (`*.example.com`) via
+**DNS-01** — HTTP-01 cannot issue wildcards, and the record sits proxied behind Cloudflare.
+So we compile it with `xcaddy`:
 
 ```dockerfile
 RUN xcaddy build \
@@ -20,98 +39,97 @@ RUN xcaddy build \
     --with github.com/caddy-dns/cloudflare@v0.2.4
 ```
 
-Versões fixadas em `caddy/Dockerfile` via `ARG` (`CADDY_VERSION=2.11.4`).
+Versions are pinned in `caddy/Dockerfile` via `ARG` (`CADDY_VERSION=2.11.4`).
 
-### Caddyfile gerado no start
+### Caddyfile generated at start
 
-Nenhum domínio fica embutido na imagem. O `caddy/entrypoint.sh` renderiza
-`/etc/caddy/Caddyfile` a cada boot a partir das variáveis e então executa
-`caddy docker-proxy`, que faz o merge com os labels dos containers.
+No domain is baked into the image. `caddy/entrypoint.sh` renders `/etc/caddy/Caddyfile`
+from environment variables on every boot, then runs `caddy docker-proxy`, which merges it
+with the container labels.
 
-| Env | Efeito |
+| Env | Effect |
 |---|---|
-| `WILDCARD_DOMAINS` | lista explícita dos blocos wildcard |
-| `CF_DOMAINS` | fallback: gera `*.<zona>` para cada zona |
-| `ACME_EMAIL` / `ACME_CA` | bloco global |
-| `DNS_RESOLVERS` | resolvers do DNS-01 (default `1.1.1.1 1.0.0.1`) |
-| `CADDY_PRINT_CADDYFILE` | `true` imprime o arquivo gerado no log |
-| `PREFLIGHT_DNS_CHECK` | `true` (default) testa Zone:DNS:Edit no boot criando/apagando um TXT |
-| `PREFLIGHT_DNS_FATAL` | `true` aborta o container se o preflight falhar |
+| `WILDCARD_DOMAINS` | explicit list of wildcard site blocks |
+| `CF_DOMAINS` | fallback: generates `*.<zone>` for each zone |
+| `ACME_EMAIL` / `ACME_CA` | global block |
+| `DNS_RESOLVERS` | DNS-01 resolvers (default `1.1.1.1 1.0.0.1`) |
+| `CADDY_PRINT_CADDYFILE` | `true` prints the generated file to the log |
+| `PREFLIGHT_DNS_CHECK` | `true` (default) tests Zone:DNS:Edit at boot by creating/deleting a TXT |
+| `PREFLIGHT_DNS_FATAL` | `true` aborts the container if the preflight fails |
 
-**Wildcard do Caddy casa apenas um label.** `*.multidesk.top` **não** cobre
-`algo.chat.multidesk.top` — liste os dois em `WILDCARD_DOMAINS`.
+**A Caddy wildcard matches only one label.** `*.example.com` does **not** cover
+`foo.sub.example.com` — list both in `WILDCARD_DOMAINS`.
 
-Sem `CF_API_TOKEN`, os blocos wildcard são omitidos (DNS-01 não roda) e um aviso vai
-para o log; o roteamento por labels continua funcionando.
+Without `CF_API_TOKEN` the wildcard blocks are skipped (DNS-01 can't run) and a warning is
+logged; label-driven routing still works.
 
-## Fluxo de TLS
+## TLS flow
 
-- **Domínios internos** (`*.multidesk.top`, `*.chat.multidesk.top`): cert wildcard real,
-  emitido pelo próprio Caddy via **DNS-01** com `CF_API_TOKEN`.
-- **Domínios de clientes** (`docs.cliente.com`): viram **custom hostname** na sua zona SaaS.
-  A borda da Cloudflare apresenta o cert DV; a zona fica em **Full**, e o Caddy responde ao
-  origin com `tls internal`. Nenhum cert público é emitido no origin.
+- **Internal domains** (`*.example.com`): a real wildcard cert, issued by Caddy itself via
+  **DNS-01** using `CF_API_TOKEN`.
+- **Customer domains** (`docs.customer.com`): become **custom hostnames** in your SaaS zone.
+  Cloudflare's edge presents the DV cert; the zone is in **Full**, and Caddy answers the
+  origin with `tls internal`. No public cert is issued at the origin.
 
 ## Setup (Portainer)
 
-Não há `.env`: todos os valores ficam inline no `docker-compose.yml`, comentados.
-Preencha os campos marcados **OBRIGATÓRIO** (`CF_API_TOKEN`, `ACME_EMAIL`) e confira
-`CF_DOMAINS` e `CADDY_INGRESS_NETWORKS`.
+There is no `.env`: every value is inline in `docker-compose.yml`, and **you only edit the
+`x-cf` block at the top** — nothing under `services:` needs changing. Fill the fields marked
+**REQUIRED** (`CF_API_TOKEN`, `CF_DOMAINS`, `ACME_EMAIL`).
 
-1. Crie a rede uma vez: `docker network create multidesk_network`
-2. Portainer → Stacks → Add stack → cole o `docker-compose.yml` no editor web
-   (ou use **Repository**). O Caddyfile é gerado dentro do container a partir das
-   variáveis, então não há bind mount nem dependência de arquivo local.
-3. Suba primeiro com `DRY_RUN: "true"` e confira o plano em
-   `docker logs cf-reconciler` antes de liberar as deleções.
+1. Create the network once: `docker network create proxy`
+2. Portainer → Stacks → Add stack → paste `docker-compose.yml` into the web editor
+   (or use **Repository**). The Caddyfile is generated inside the container from the
+   variables, so there is no bind mount or local-file dependency.
+3. Deploy first with `DRY_RUN: "true"` and check the plan in
+   `docker logs cf-reconciler` before allowing deletions.
 
-### Token Cloudflare
+### Cloudflare token
 
-Um único `CF_API_TOKEN`, compartilhado pelos dois serviços:
+A single `CF_API_TOKEN`, shared by both services:
 
-| Permissão | Para quê |
+| Permission | Used for |
 |---|---|
-| `Zone:Zone:Read` | descoberta das zonas |
-| `Zone:DNS:Edit` | DNS-01 do wildcard (Caddy) |
-| `Zone:SSL and Certificates:Edit` | custom hostnames (reconciliador) |
+| `Zone:Zone:Read` | zone discovery |
+| `Zone:DNS:Edit` | wildcard DNS-01 (Caddy) |
+| `Zone:SSL and Certificates:Edit` | custom hostnames (reconciler) |
 
-### Variáveis compartilhadas
+On boot, Caddy runs a preflight (create+delete a TXT) and logs `PREFLIGHT OK/ERROR` so a
+token missing `Zone:DNS:Edit` is obvious before ACME retries.
 
-Definidas uma vez na âncora `x-cf` do compose e mergeadas nos dois serviços:
-`CF_API_TOKEN`, `CF_DOMAINS`, `ACME_EMAIL`, `CADDY_INGRESS_NETWORKS`, `LOG_FORMAT`, `TZ`.
-O nome da rede é uma âncora (`&net`) reaproveitada no bloco `networks`, então também
-está declarado em um só lugar.
+### Shared variables
 
-`CF_DOMAINS` é uma lista ordenada (`"a.com,b.com"`): define quais zonas são gerenciadas
-e a **primeira** é a zona alvo padrão para novos custom hostnames.
+`CF_DOMAINS` is an ordered list (`"a.com,b.com"`): it defines which zones are managed, and
+the **first** entry is the default target zone for new custom hostnames. Both services read
+the same `x-cf` anchor; each ignores the keys it doesn't use.
 
-## Stack de cliente (exemplo)
+## Customer stack (example)
 
 ```yaml
 services:
   app:
     image: nginx
     labels:
-      caddy_0: docs.clientedele.com
+      caddy_0: docs.customer.com
       caddy_0.reverse_proxy: "{{upstreams 80}}"
       caddy_0.tls: internal
-      caddy_1: cliente.multidesk.top
+      caddy_1: customer.example.com
       caddy_1.reverse_proxy: "{{upstreams 80}}"
-    networks: [multidesk_network]
+    networks: [proxy]
 
 networks:
-  multidesk_network:
+  proxy:
     external: true
 ```
 
-`docs.clientedele.com` vira custom hostname em segundos; `cliente.multidesk.top` é coberto
-pelo wildcard e **nunca** é enviado à API de custom hostnames.
+`docs.customer.com` becomes a custom hostname within seconds; `customer.example.com` is
+covered by the wildcard and is **never** sent to the custom-hostnames API.
 
 ## CI
 
-`.github/workflows/build.yml`: syntax check + testes (`node --test`) do reconciliador → build
-multi-arch (`linux/amd64`, `linux/arm64`) das duas imagens → push para GHCR
-(`latest` na `main`, semver nas tags `v*`, SHA curto sempre).
+`.github/workflows/build.yml`: syntax check + tests (`node --test`) for the reconciler →
+multi-arch build (`linux/amd64`, `linux/arm64`) of both images → push to GHCR (`latest` on
+`main`, semver on `v*` tags, short SHA always).
 
-Detalhes do reconciliador (multi-zona, trava de segurança, `DRY_RUN`, `/healthz`):
+Reconciler details (multi-zone, safety latch, `DRY_RUN`, `/healthz`):
 [`cf-hostname-reconciler/README.md`](cf-hostname-reconciler/README.md).

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { desiredFromLabels, parseLabelValue } from "../src/docker.js";
 
-const SUFFIXES = [".multidesk.top"];
+const SUFFIXES = [".example.com"];
 
 test("strips scheme, path and port", () => {
   assert.deepEqual(parseLabelValue("https://docs.exemplo.com:443/x", SUFFIXES), ["docs.exemplo.com"]);
@@ -16,12 +16,12 @@ test("multiple hosts comma separated", () => {
 });
 
 test("drops internal suffix", () => {
-  assert.deepEqual(parseLabelValue("cliente.multidesk.top", SUFFIXES), []);
-  assert.deepEqual(parseLabelValue("x.chat.multidesk.top", SUFFIXES), []);
+  assert.deepEqual(parseLabelValue("cliente.example.com", SUFFIXES), []);
+  assert.deepEqual(parseLabelValue("x.chat.example.com", SUFFIXES), []);
 });
 
 test("drops wildcard, template and catch-all", () => {
-  assert.deepEqual(parseLabelValue("*.multidesk.top", SUFFIXES), []);
+  assert.deepEqual(parseLabelValue("*.example.com", SUFFIXES), []);
   assert.deepEqual(parseLabelValue("{{DOMAIN}}", SUFFIXES), []);
   assert.deepEqual(parseLabelValue("https://", SUFFIXES), []);
   assert.deepEqual(parseLabelValue("localhost", SUFFIXES), []);
@@ -40,6 +40,6 @@ test("only site-block keys are read", () => {
 });
 
 test("zone hint label", () => {
-  const entry = desiredFromLabels({ caddy_0: "docs.exemplo.com", cf_zone: "Multidesk.Top" }, SUFFIXES)[0];
-  assert.equal(entry.zoneHint, "multidesk.top");
+  const entry = desiredFromLabels({ caddy_0: "docs.exemplo.com", cf_zone: "Example.Com" }, SUFFIXES)[0];
+  assert.equal(entry.zoneHint, "example.com");
 });

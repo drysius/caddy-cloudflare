@@ -9,8 +9,8 @@ import { ZoneRegistry } from "../src/zones.js";
 
 setupLogging("ERROR", "text"); // keep test output quiet
 
-const ZONE_A = { id: "z1", name: "multidesk.top" };
-const ZONE_B = { id: "z2", name: "outra.com" };
+const ZONE_A = { id: "z1", name: "example.com" };
+const ZONE_B = { id: "z2", name: "other.com" };
 
 class FakeCF {
   constructor(zones = [ZONE_A], hostnames = []) {
@@ -68,24 +68,24 @@ function make({ overrides = {}, cf = new FakeCF(), docker = new FakeDocker() } =
 test("creates missing hostname", async () => {
   const { r, cf } = make({ docker: new FakeDocker(entries("docs.exemplo.com")) });
   await r.runOnce();
-  assert.deepEqual(cf.created, [["multidesk.top", "docs.exemplo.com"]]);
+  assert.deepEqual(cf.created, [["example.com", "docs.exemplo.com"]]);
 });
 
 test("deletes orphan hostname", async () => {
-  const cf = new FakeCF([ZONE_A], [ch("id1", "velho.com", "z1", "multidesk.top")]);
+  const cf = new FakeCF([ZONE_A], [ch("id1", "velho.com", "z1", "example.com")]);
   const { r } = make({ cf, docker: new FakeDocker(entries("docs.exemplo.com")), overrides: { maxDeletionRatio: 1 } });
   await r.runOnce();
   assert.deepEqual(cf.deleted, ["velho.com"]);
 });
 
 test("zone names are treated as internal", async () => {
-  const { r, cf } = make({ docker: new FakeDocker(entries("cliente.multidesk.top")) });
+  const { r, cf } = make({ docker: new FakeDocker(entries("cliente.example.com")) });
   await r.runOnce();
   assert.deepEqual(cf.created, []);
 });
 
 test("docker failure blocks deletions", async () => {
-  const cf = new FakeCF([ZONE_A], [ch("id1", "velho.com", "z1", "multidesk.top")]);
+  const cf = new FakeCF([ZONE_A], [ch("id1", "velho.com", "z1", "example.com")]);
   const { r, health } = make({ cf, docker: new FakeDocker(new Map(), true) });
   await r.runOnce();
   assert.deepEqual(cf.deleted, []);
@@ -93,7 +93,7 @@ test("docker failure blocks deletions", async () => {
 });
 
 test("dry run has no side effects", async () => {
-  const cf = new FakeCF([ZONE_A], [ch("id1", "velho.com", "z1", "multidesk.top")]);
+  const cf = new FakeCF([ZONE_A], [ch("id1", "velho.com", "z1", "example.com")]);
   const { r } = make({ cf, docker: new FakeDocker(entries("novo.com")), overrides: { dryRun: true } });
   await r.runOnce();
   assert.deepEqual(cf.created, []);
@@ -102,16 +102,16 @@ test("dry run has no side effects", async () => {
 
 test("multi-zone honours cf_zone hint", async () => {
   const cf = new FakeCF([ZONE_A, ZONE_B]);
-  const { r } = make({ cf, docker: new FakeDocker(entryHint("docs.exemplo.com", "outra.com")) });
+  const { r } = make({ cf, docker: new FakeDocker(entryHint("docs.exemplo.com", "other.com")) });
   await r.runOnce();
-  assert.deepEqual(cf.created, [["outra.com", "docs.exemplo.com"]]);
+  assert.deepEqual(cf.created, [["other.com", "docs.exemplo.com"]]);
 });
 
 test("first CF_DOMAINS entry is default target", async () => {
   const cf = new FakeCF([ZONE_A, ZONE_B]);
-  const { r } = make({ cf, docker: new FakeDocker(entries("d.com")), overrides: { cfDomains: ["outra.com", "multidesk.top"] } });
+  const { r } = make({ cf, docker: new FakeDocker(entries("d.com")), overrides: { cfDomains: ["other.com", "example.com"] } });
   await r.runOnce();
-  assert.deepEqual(cf.created, [["outra.com", "d.com"]]);
+  assert.deepEqual(cf.created, [["other.com", "d.com"]]);
 });
 
 test("multi-zone without hint or domains records an error", async () => {
@@ -125,12 +125,12 @@ test("multi-zone without hint or domains records an error", async () => {
 test("deletion spans all zones", async () => {
   const cf = new FakeCF(
     [ZONE_A, ZONE_B],
-    [ch("id1", "a.com", "z1", "multidesk.top"), ch("id2", "b.com", "z2", "outra.com")],
+    [ch("id1", "a.com", "z1", "example.com"), ch("id2", "b.com", "z2", "other.com")],
   );
   const { r } = make({
     cf,
     docker: new FakeDocker(entries("a.com")),
-    overrides: { cfDomains: ["outra.com", "multidesk.top"], maxDeletionRatio: 1 },
+    overrides: { cfDomains: ["other.com", "example.com"], maxDeletionRatio: 1 },
   });
   await r.runOnce();
   assert.deepEqual(cf.deleted, ["b.com"]);
@@ -138,7 +138,7 @@ test("deletion spans all zones", async () => {
 
 for (const count of [6, 20]) {
   test(`mass deletion is latched (${count})`, async () => {
-    const hostnames = Array.from({ length: count }, (_, i) => ch(`id${i}`, `h${i}.com`, "z1", "multidesk.top"));
+    const hostnames = Array.from({ length: count }, (_, i) => ch(`id${i}`, `h${i}.com`, "z1", "example.com"));
     const cf = new FakeCF([ZONE_A], hostnames);
     const { r } = make({ cf, docker: new FakeDocker(entries("keep.com")) });
     await r.runOnce();

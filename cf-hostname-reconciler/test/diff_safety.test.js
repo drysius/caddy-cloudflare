@@ -3,7 +3,7 @@ import { test } from "node:test";
 import { buildPlan } from "../src/diff.js";
 import { evaluateLatch } from "../src/safety.js";
 
-const ch = (hostname, zoneId = "z1", zoneName = "multidesk.top") => ({
+const ch = (hostname, zoneId = "z1", zoneName = "example.com") => ({
   id: `id-${hostname}`,
   hostname,
   zoneId,

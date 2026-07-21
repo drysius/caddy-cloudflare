@@ -1,22 +1,52 @@
-# Stack para Portainer: todos os valores inline (sem .env).
-# Edite os campos marcados como OBRIGATÓRIO antes de subir.
-
-# Variáveis compartilhadas pelos dois serviços. Mude aqui, vale para ambos.
+# Portainer stack: every value is inline (no .env file).
+# Edit ONLY the block below (x-cf). Nothing under `services:` needs changing.
+# Fields marked REQUIRED must be set before deploying.
 x-cf: &cf-common
-  # OBRIGATÓRIO. Token único da Cloudflare. Permissões necessárias:
+  # REQUIRED. Single Cloudflare token, shared by both services. Permissions:
   #   Zone:Zone:Read  +  Zone:DNS:Edit  +  Zone:SSL and Certificates:Edit
   CF_API_TOKEN: ""
-  # Zonas gerenciadas, separadas por vírgula, em ordem de prioridade.
-  # A PRIMEIRA é a zona alvo padrão de novos custom hostnames.
-  # Vazio = todas as zonas visíveis ao token.
-  CF_DOMAINS: "multidesk.top"
-  # OBRIGATÓRIO. E-mail de contato do ACME (avisos de expiração).
+  # REQUIRED. Managed zones, comma-separated, in priority order.
+  # The FIRST entry is the default target zone for new custom hostnames.
+  # Empty = every zone the token can see.
+  CF_DOMAINS: "example.com"
+  # REQUIRED. ACME contact email (expiry notices).
   ACME_EMAIL: ""
-  # Rede compartilhada com as stacks dos clientes. Deve casar com o bloco `networks`.
-  CADDY_INGRESS_NETWORKS: &net "multidesk_network"
-  # text | json
-  LOG_FORMAT: "json"
-  TZ: "America/Sao_Paulo"
+
+  # Ingress network shared with the client stacks. Must match the `networks` block.
+  CADDY_INGRESS_NETWORKS: &net "proxy"
+
+  # --- Caddy: internal wildcard certificates (issued via DNS-01) ---
+  # The base Caddyfile is GENERATED at start. Empty = one single-label wildcard per
+  # CF_DOMAINS zone (e.g. *.example.com). Set explicitly to control the list,
+  # including deeper wildcards: a Caddy wildcard matches only ONE label, so
+  # *.example.com does NOT cover foo.sub.example.com.
+  WILDCARD_DOMAINS: "*.example.com"
+  DNS_RESOLVERS: "1.1.1.1 1.0.0.1"
+  # Alternate ACME CA (leave empty for Let's Encrypt production).
+  # Staging: https://acme-staging-v02.api.letsencrypt.org/directory
+  ACME_CA: ""
+  # "true" prints the generated Caddyfile to the log at start (debugging).
+  CADDY_PRINT_CADDYFILE: "false"
+  # At boot, create+delete a TXT record (the exact DNS-01 call) and log
+  # PREFLIGHT OK/ERROR — catches a token missing Zone:DNS:Edit before ACME retries.
+  PREFLIGHT_DNS_CHECK: "true"
+  # "true" aborts the container if the preflight fails (instead of only logging).
+  PREFLIGHT_DNS_FATAL: "false"
+
+  # --- Reconciler: Cloudflare for SaaS custom hostnames ---
+  # Periodic safety-net reconcile, seconds (Docker events trigger sooner).
+  RECONCILE_INTERVAL: "3600"
+  # Latch: abort the delete phase if it would remove more than N hostnames...
+  MAX_DELETIONS_PER_RUN: "5"
+  # ...or more than this fraction of all hostnames on Cloudflare.
+  MAX_DELETION_RATIO: "0.3"
+  # "true" only logs the plan, changes nothing. Recommended on the first deploy.
+  DRY_RUN: "false"
+
+  # --- Shared ---
+  LOG_FORMAT: "json"   # text | json
+  LOG_LEVEL: "INFO"
+  TZ: "UTC"
 
 x-shared: &shared
   restart: unless-stopped
@@ -34,23 +64,7 @@ services:
       - 443:443/udp
     environment:
       <<: *cf-common
-      # O Caddyfile base é GERADO no start a partir das variáveis abaixo.
-      # Vazio = um wildcard de um nível por zona de CF_DOMAINS (ex.: *.multidesk.top).
-      # Preencha para controlar a lista, inclusive wildcards mais profundos —
-      # um wildcard do Caddy casa apenas UM label, então *.multidesk.top NÃO cobre
-      # algo.chat.multidesk.top.
-      WILDCARD_DOMAINS: "*.multidesk.top,*.chat.multidesk.top"
-      DNS_RESOLVERS: "1.1.1.1 1.0.0.1"
-      # CA alternativa do ACME (deixe vazio para Let's Encrypt).
-      # Ex. staging: https://acme-staging-v02.api.letsencrypt.org/directory
-      ACME_CA: ""
-      # "true" imprime o Caddyfile gerado no log ao subir. Útil para depurar.
-      CADDY_PRINT_CADDYFILE: "false"
-      # No boot, testa criar/apagar um TXT (mesma operação do DNS-01) e loga
-      # PREFLIGHT OK/ERROR. Pega token sem Zone:DNS:Edit antes das tentativas ACME.
-      PREFLIGHT_DNS_CHECK: "true"
-      # "true" = aborta o container se o preflight falhar (em vez de só logar).
-      PREFLIGHT_DNS_FATAL: "false"
+      CADDY_DOCKER_CADDYFILE_PATH: /etc/caddy/Caddyfile
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - caddy_data:/data
@@ -62,16 +76,6 @@ services:
     container_name: cf-reconciler
     environment:
       <<: *cf-common
-      # Reconciliação periódica de segurança, em segundos (eventos do Docker
-      # disparam antes disso).
-      RECONCILE_INTERVAL: "3600"
-      # Trava: aborta a fase de deleção se passar de N deleções numa rodada...
-      MAX_DELETIONS_PER_RUN: "5"
-      # ...ou se as deleções passarem desta fração do total na Cloudflare.
-      MAX_DELETION_RATIO: "0.3"
-      # "true" = só loga o plano, não executa nada. Recomendado na primeira subida.
-      DRY_RUN: "false"
-      LOG_LEVEL: "INFO"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
     depends_on:
