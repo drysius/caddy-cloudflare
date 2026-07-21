@@ -75,10 +75,11 @@ services:
     image: ghcr.io/drysius/cf-hostname-reconciler:latest
     container_name: cf-reconciler
     # The image runs as non-root (uid node), so it needs the host's `docker`
-    # group to read the socket. Find the GID with:  getent group docker | cut -d: -f3
-    # then put it below. (Alternative: `user: "0:0"` to run as root.)
+    # group to read the socket. The GID is host-specific — find yours with:
+    #   getent group docker | cut -d: -f3
+    # (Alternative: `user: "0:0"` to run as root.)
     group_add:
-      - "999"
+      - "987"
     environment:
       <<: *cf-common
     volumes:
