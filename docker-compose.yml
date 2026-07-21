@@ -46,6 +46,11 @@ services:
       ACME_CA: ""
       # "true" imprime o Caddyfile gerado no log ao subir. Útil para depurar.
       CADDY_PRINT_CADDYFILE: "false"
+      # No boot, testa criar/apagar um TXT (mesma operação do DNS-01) e loga
+      # PREFLIGHT OK/ERROR. Pega token sem Zone:DNS:Edit antes das tentativas ACME.
+      PREFLIGHT_DNS_CHECK: "true"
+      # "true" = aborta o container se o preflight falhar (em vez de só logar).
+      PREFLIGHT_DNS_FATAL: "false"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - caddy_data:/data

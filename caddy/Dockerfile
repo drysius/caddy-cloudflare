@@ -15,6 +15,10 @@ FROM caddy:${CADDY_VERSION}-alpine
 
 COPY --from=builder /usr/bin/caddy /usr/bin/caddy
 
+# curl: used by entrypoint.sh for the DNS:Edit preflight (busybox wget cannot do
+# arbitrary methods like DELETE).
+RUN apk add --no-cache curl
+
 # The base Caddyfile is generated at start from CF_DOMAINS / WILDCARD_DOMAINS,
 # so the image carries no hardcoded domain.
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh

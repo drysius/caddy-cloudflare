@@ -35,6 +35,8 @@ Nenhum domínio fica embutido na imagem. O `caddy/entrypoint.sh` renderiza
 | `ACME_EMAIL` / `ACME_CA` | bloco global |
 | `DNS_RESOLVERS` | resolvers do DNS-01 (default `1.1.1.1 1.0.0.1`) |
 | `CADDY_PRINT_CADDYFILE` | `true` imprime o arquivo gerado no log |
+| `PREFLIGHT_DNS_CHECK` | `true` (default) testa Zone:DNS:Edit no boot criando/apagando um TXT |
+| `PREFLIGHT_DNS_FATAL` | `true` aborta o container se o preflight falhar |
 
 **Wildcard do Caddy casa apenas um label.** `*.multidesk.top` **não** cobre
 `algo.chat.multidesk.top` — liste os dois em `WILDCARD_DOMAINS`.

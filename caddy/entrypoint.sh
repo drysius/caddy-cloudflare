@@ -65,4 +65,56 @@ if [ "${CADDY_PRINT_CADDYFILE:-false}" = "true" ]; then
     echo "--- end ---" >&2
 fi
 
+# --- Preflight: can the token actually edit DNS? ---------------------------
+# DNS-01 fails with a cryptic "HTTP 403 Code:10000 Authentication error" when the
+# token lacks Zone:DNS:Edit. Reproduce that exact call here (create + delete a TXT)
+# so a misconfigured token is obvious in the log instead of buried in ACME retries.
+cf_api() {
+    # cf_api METHOD PATH [BODY] -> response body on stdout
+    _method=$1
+    _path=$2
+    _body=${3:-}
+    if [ -n "$_body" ]; then
+        curl -s -X "$_method" -H "Authorization: Bearer $CF_API_TOKEN" \
+            -H "Content-Type: application/json" --data "$_body" \
+            "https://api.cloudflare.com/client/v4$_path"
+    else
+        curl -s -X "$_method" -H "Authorization: Bearer $CF_API_TOKEN" \
+            "https://api.cloudflare.com/client/v4$_path"
+    fi
+}
+
+preflight_dns() {
+    # Pick the zone to probe: first CF_DOMAINS entry, else first wildcard sans "*.".
+    _zone=$(echo "${CF_DOMAINS:-}" | cut -d, -f1 | tr -d '[:space:]')
+    if [ -z "$_zone" ]; then
+        _zone=$(echo "$hosts" | head -n1 | sed 's/^\*\.//')
+    fi
+    [ -z "$_zone" ] && return 0
+
+    _resp=$(cf_api GET "/zones?name=$_zone")
+    _zid=$(printf '%s' "$_resp" | grep -oE '"id":"[a-f0-9]{32}"' | head -n1 | grep -oE '[a-f0-9]{32}')
+    if [ -z "$_zid" ]; then
+        echo "PREFLIGHT WARN: could not resolve zone id for '$_zone' (token may lack Zone:Read, or the zone is on another account). Skipping DNS check." >&2
+        return 0
+    fi
+
+    _txt="_caddy-preflight.$_zone"
+    _resp=$(cf_api POST "/zones/$_zid/dns_records" "{\"type\":\"TXT\",\"name\":\"$_txt\",\"content\":\"preflight\",\"ttl\":60}")
+    if printf '%s' "$_resp" | grep -q '"success":true'; then
+        _rid=$(printf '%s' "$_resp" | grep -oE '"id":"[a-f0-9]{32}"' | head -n1 | grep -oE '[a-f0-9]{32}')
+        [ -n "$_rid" ] && cf_api DELETE "/zones/$_zid/dns_records/$_rid" >/dev/null
+        echo "PREFLIGHT OK: token can edit DNS on zone '$_zone'." >&2
+    else
+        _code=$(printf '%s' "$_resp" | grep -oE '"code":[0-9]+' | head -n1)
+        echo "PREFLIGHT ERROR: token CANNOT edit DNS on zone '$_zone' ($_code). DNS-01 will fail with HTTP 403. Add the 'Zone:DNS:Edit' permission to CF_API_TOKEN for this zone." >&2
+        [ "${PREFLIGHT_DNS_FATAL:-false}" = "true" ] && exit 1
+    fi
+}
+
+# Only worth probing when we actually emitted wildcard blocks that need DNS-01.
+if [ -n "$hosts" ] && [ -n "${CF_API_TOKEN:-}" ] && [ "${PREFLIGHT_DNS_CHECK:-true}" = "true" ]; then
+    preflight_dns
+fi
+
 exec "$@"
