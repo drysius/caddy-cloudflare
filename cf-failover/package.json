@@ -1,0 +1,13 @@
+{
+  "name": "cf-failover",
+  "version": "0.1.0",
+  "description": "TCP-ping the origin IP; flip a wildcard DNS record to a Cloudflare Tunnel on failure",
+  "type": "module",
+  "private": true,
+  "engines": { "node": ">=20" },
+  "bin": { "cf-failover": "src/index.js" },
+  "scripts": {
+    "start": "node src/index.js",
+    "test": "node --test"
+  }
+}

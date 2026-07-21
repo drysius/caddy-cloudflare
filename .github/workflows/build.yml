@@ -9,15 +9,19 @@ on:
 
 jobs:
   test:
-    name: lint + tests (reconciler)
+    name: lint + tests (${{ matrix.pkg }})
     runs-on: ubuntu-latest
     permissions:
       contents: read
       checks: write
       pull-requests: write
+    strategy:
+      fail-fast: false
+      matrix:
+        pkg: [cf-hostname-reconciler, cf-failover]
     defaults:
       run:
-        working-directory: cf-hostname-reconciler
+        working-directory: ${{ matrix.pkg }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -36,8 +40,8 @@ jobs:
         uses: mikepenz/action-junit-report@v5
         if: always()
         with:
-          report_paths: cf-hostname-reconciler/junit.xml
-          check_name: node test results
+          report_paths: ${{ matrix.pkg }}/junit.xml
+          check_name: node test results (${{ matrix.pkg }})
           include_passed: true
           detailed_summary: true
 
@@ -45,8 +49,8 @@ jobs:
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: test-reports
-          path: cf-hostname-reconciler/junit.xml
+          name: test-reports-${{ matrix.pkg }}
+          path: ${{ matrix.pkg }}/junit.xml
           retention-days: 14
 
   images:
@@ -65,6 +69,8 @@ jobs:
             context: ./caddy
           - image: cf-hostname-reconciler
             context: ./cf-hostname-reconciler
+          - image: cf-failover
+            context: ./cf-failover
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-qemu-action@v3

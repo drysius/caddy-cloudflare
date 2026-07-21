@@ -50,6 +50,18 @@ x-cf: &cf-common
   # (e.g. clients.example.com = fallback origin, and *.example.com if you want it).
   TUNNEL_TOKEN: ""
 
+  # --- Failover watcher (optional) ---
+  # Pings PRIMARY_IP directly; if it dies, flips FAILOVER_RECORD from A->IP to
+  # CNAME->tunnel. Leave PRIMARY_IP/TUNNEL_TARGET empty to keep it idle.
+  # NOTE: to actually protect you this must run OFF this host (see cf-failover/README).
+  FAILOVER_RECORD: "*.example.com"          # the wildcard clients hit (e.g. *.example.com)
+  PRIMARY_IP: ""                            # this server's public IP (A record when healthy)
+  TUNNEL_TARGET: ""                         # <tunnel-uuid>.cfargotunnel.com (CNAME on failover)
+  PING_TARGET: ""                           # host:port to probe; empty = PRIMARY_IP:443
+  FAIL_THRESHOLD: "3"
+  RECOVER_THRESHOLD: "3"
+  CHECK_INTERVAL_SECONDS: "10"
+
   # --- Shared ---
   LOG_FORMAT: "json"   # text | json
   LOG_LEVEL: "INFO"
@@ -106,6 +118,19 @@ services:
       <<: *cf-common
     depends_on:
       - caddy
+
+  # Flips FAILOVER_RECORD to the tunnel when PRIMARY_IP stops answering.
+  # WARNING: running this on the same host it protects is a weak setup — if the
+  # host dies, so does the watcher. Prefer running it elsewhere. See
+  # cf-failover/README.md. Idles until PRIMARY_IP/TUNNEL_TARGET are set.
+  cf-failover:
+    <<: *shared
+    image: ghcr.io/drysius/cf-failover:latest
+    container_name: cf-failover
+    environment:
+      <<: *cf-common
+    depends_on:
+      - cloudflared
 
 networks:
   proxy:
