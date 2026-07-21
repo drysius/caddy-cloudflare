@@ -74,9 +74,14 @@ def test_creates_missing_hostname():
     assert cf.created == [("multidesk.top", "docs.exemplo.com")]
 
 
+# These tests exercise deletion routing, not the ratio latch, so they relax the
+# ratio (deleting the only/half of the hostnames would otherwise trip it).
+NO_RATIO = {"max_deletion_ratio": 1.0}
+
+
 def test_deletes_orphan_hostname():
     cf = FakeCF(hostnames=[CustomHostname("id1", "velho.com", "z1", "multidesk.top")])
-    r, cf = make(cf=cf, docker=FakeDocker(entries("docs.exemplo.com")))
+    r, cf = make(NO_RATIO, cf=cf, docker=FakeDocker(entries("docs.exemplo.com")))
     r.run_once()
     assert cf.deleted == ["velho.com"]
 
@@ -137,7 +142,7 @@ def test_deletion_spans_all_zones():
         ],
     )
     r, cf = make(
-        {"cf_domains": ("outra.com", "multidesk.top")},
+        {"cf_domains": ("outra.com", "multidesk.top"), **NO_RATIO},
         cf=cf,
         docker=FakeDocker(entries("a.com")),
     )
