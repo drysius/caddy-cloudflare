@@ -1,29 +1,36 @@
 # cf-failover
 
-TCP-pings your origin IP directly (bypassing Cloudflare). After `FAIL_THRESHOLD`
-consecutive failures it flips a wildcard DNS record from `A → your IP` to
-`CNAME → your Cloudflare Tunnel`, detouring traffic through the always-on tunnel.
-After `RECOVER_THRESHOLD` consecutive successes it flips back. Hysteresis avoids
-flapping.
+Probes origin reachability; after `FAIL_THRESHOLD` consecutive failures it flips a
+wildcard DNS record from `A → your IP` to `CNAME → your Cloudflare Tunnel`,
+detouring traffic through the always-on tunnel. After `RECOVER_THRESHOLD`
+consecutive successes it flips back. Hysteresis avoids flapping.
 
 ```
-healthy:  *.example.com  A     → PRIMARY_IP        (direct)
-failed:   *.example.com  CNAME → <uuid>.cfargotunnel.com  (tunnel)
+healthy:  *.example.com  A     → PRIMARY_IP                 (direct)
+failed:   *.example.com  CNAME → <uuid>.cfargotunnel.com    (tunnel)
 ```
 
-## Read this before relying on it
+## Probe modes
 
-- **Run it OFF the protected host.** If it lives on the same box that goes down,
-  it dies too and can never fail over. A cheap external VPS, another node, or a
-  scheduled runner is the right home.
-- **Same-host probing is unreliable.** Connecting to your own public IP from the
-  same host can succeed via hairpin routing even when outside clients cannot
-  reach it. Point `PING_TARGET` at something that reflects *external*
-  reachability, or run externally.
-- **It does not survive full host death.** The tunnel and the direct IP both
-  terminate at the same Caddy. This protects against the IP path being
-  blocked/attacked while the host is up — not against the host being gone. Real
-  redundancy needs a second origin (see Cloudflare Load Balancer).
+**`http` (default) — works on the same host.** GETs `HEALTH_URL` *through*
+Cloudflare. The request crosses the inbound edge→origin hop, so if the datacenter
+blocks inbound (e.g. a DDoS), Cloudflare answers `52x` and the watcher sees the
+outage — even when running inside that same datacenter. Point `HEALTH_URL` at a
+**permanent, direct-to-IP proxied hostname that never flips**, e.g. a record
+`origin-direct.example.com` `A(proxied) → your IP`. Because that probe target is
+always the IP path, it reflects inbound health independently of what
+`*.example.com` is doing — no flapping.
+
+**`tcp` — must run off-host.** Connects straight to `PING_TARGET`/`PRIMARY_IP:443`.
+From the same host this hairpins and always looks up; only meaningful from an
+external location.
+
+## Scope
+
+This protects against the **inbound path being blocked while the host is alive and
+its outbound tunnel still works** (the datacenter-DDoS case). It does **not**
+survive the host itself dying — the tunnel and the direct IP terminate at the same
+Caddy. Real host-level redundancy needs a second origin.
 
 ## Configuration
 
@@ -34,7 +41,9 @@ failed:   *.example.com  CNAME → <uuid>.cfargotunnel.com  (tunnel)
 | `PRIMARY_IP` | — | **required**; A-record content when healthy |
 | `TUNNEL_TARGET` | — | **required**; `<uuid>.cfargotunnel.com` |
 | `FAILOVER_ZONE` | *(derived)* | zone name; defaults to the registrable domain of the record |
-| `PING_TARGET` | `PRIMARY_IP:443` | `host:port` to TCP-probe |
+| `PROBE_MODE` | `http` | `http` (through Cloudflare, same-host safe) or `tcp` (off-host only) |
+| `HEALTH_URL` | — | http mode: a permanent direct-to-IP proxied URL, e.g. `https://origin-direct.example.com` |
+| `PING_TARGET` | `PRIMARY_IP:443` | tcp mode: `host:port` to TCP-probe |
 | `CHECK_INTERVAL_SECONDS` | `10` | probe interval |
 | `CONNECT_TIMEOUT_SECONDS` | `5` | per-probe TCP timeout |
 | `FAIL_THRESHOLD` | `3` | consecutive fails before failover |

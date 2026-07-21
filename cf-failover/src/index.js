@@ -25,7 +25,12 @@ const cfg = {
   zone: (env.FAILOVER_ZONE ?? "").trim().toLowerCase(),
   primaryIp: (env.PRIMARY_IP ?? "").trim(),
   tunnelTarget: (env.TUNNEL_TARGET ?? "").trim().toLowerCase(), // <uuid>.cfargotunnel.com
-  pingTarget: (env.PING_TARGET ?? "").trim(), // host:port; default PRIMARY_IP:443
+  // "http" (default): GET HEALTH_URL through Cloudflare, so the probe crosses the
+  // inbound edge->origin hop that a datacenter DDoS blocks — works even on the
+  // same host. "tcp": raw connect to PING_TARGET (needs to run OFF the host).
+  probeMode: (env.PROBE_MODE ?? "http").trim().toLowerCase(),
+  healthUrl: (env.HEALTH_URL ?? "").trim(), // e.g. https://origin-direct.multidesk.top
+  pingTarget: (env.PING_TARGET ?? "").trim(), // tcp mode: host:port; default PRIMARY_IP:443
   interval: num("CHECK_INTERVAL_SECONDS", 10) * 1000,
   connectTimeout: num("CONNECT_TIMEOUT_SECONDS", 5) * 1000,
   failThreshold: num("FAIL_THRESHOLD", 3),
@@ -34,6 +39,11 @@ const cfg = {
   dryRun: bool("DRY_RUN", false),
   healthPort: num("HEALTH_PORT", 8080),
 };
+
+// Cloudflare returns these when it cannot reach the origin (the exact symptom of
+// a datacenter blocking inbound). Treat them — and any network error/timeout —
+// as "origin down".
+const CF_ORIGIN_ERRORS = new Set([521, 522, 523, 524, 525, 526, 527]);
 
 function log(level, msg, fields = {}) {
   process.stdout.write(JSON.stringify({ ts: new Date().toISOString(), level, msg, ...fields }) + "\n");
@@ -96,7 +106,7 @@ async function flip(toMode) {
   log("ERROR", `failover: flipped ${cfg.record} to ${toMode}`, { record });
 }
 
-// ---- TCP probe ------------------------------------------------------------
+// ---- probes ---------------------------------------------------------------
 function tcpPing(host, port) {
   return new Promise((resolve) => {
     const socket = net.connect({ host, port });
@@ -114,9 +124,31 @@ function tcpPing(host, port) {
   });
 }
 
+// HTTP probe THROUGH Cloudflare: up unless the request errors/times out or
+// Cloudflare reports it can't reach the origin (52x).
+async function httpProbe(url) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), cfg.connectTimeout);
+  try {
+    const resp = await fetch(url, { redirect: "manual", signal: ctrl.signal, cache: "no-store" });
+    return !CF_ORIGIN_ERRORS.has(resp.status);
+  } catch {
+    return false;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function probe() {
+  if (cfg.probeMode === "tcp") {
+    const [host, portStr] = (cfg.pingTarget || `${cfg.primaryIp}:443`).split(":");
+    return tcpPing(host, Number(portStr || 443));
+  }
+  return httpProbe(cfg.healthUrl);
+}
+
 async function check() {
-  const [host, portStr] = (cfg.pingTarget || `${cfg.primaryIp}:443`).split(":");
-  const ok = await tcpPing(host, Number(portStr || 443));
+  const ok = await probe();
   state.lastCheckTs = Date.now();
 
   if (ok) {
@@ -126,7 +158,7 @@ async function check() {
     state.consecutiveFails += 1;
     state.consecutiveOks = 0;
   }
-  log("DEBUG", "probe", { host, ok, fails: state.consecutiveFails, oks: state.consecutiveOks, mode: state.mode });
+  log("DEBUG", "probe", { ok, fails: state.consecutiveFails, oks: state.consecutiveOks, mode: state.mode });
 
   try {
     const target = decideFlip({
@@ -162,6 +194,8 @@ function missingConfig() {
   if (!cfg.record) missing.push("FAILOVER_RECORD");
   if (!cfg.primaryIp) missing.push("PRIMARY_IP");
   if (!cfg.tunnelTarget) missing.push("TUNNEL_TARGET");
+  if (cfg.probeMode === "http" && !cfg.healthUrl) missing.push("HEALTH_URL");
+  if (cfg.probeMode === "tcp" && !cfg.pingTarget && !cfg.primaryIp) missing.push("PING_TARGET");
   return missing;
 }
 
@@ -183,7 +217,8 @@ async function main() {
     zone: cfg.zone,
     primaryIp: cfg.primaryIp,
     tunnelTarget: cfg.tunnelTarget,
-    ping: cfg.pingTarget || `${cfg.primaryIp}:443`,
+    probeMode: cfg.probeMode,
+    probe: cfg.probeMode === "http" ? cfg.healthUrl : cfg.pingTarget || `${cfg.primaryIp}:443`,
     failThreshold: cfg.failThreshold,
     recoverThreshold: cfg.recoverThreshold,
     dryRun: cfg.dryRun,

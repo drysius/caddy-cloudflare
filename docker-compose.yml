@@ -51,13 +51,22 @@ x-cf: &cf-common
   TUNNEL_TOKEN: ""
 
   # --- Failover watcher (optional) ---
-  # Pings PRIMARY_IP directly; if it dies, flips FAILOVER_RECORD from A->IP to
-  # CNAME->tunnel. Leave PRIMARY_IP/TUNNEL_TARGET empty to keep it idle.
-  # NOTE: to actually protect you this must run OFF this host (see cf-failover/README).
-  FAILOVER_RECORD: "*.example.com"          # the wildcard clients hit (e.g. *.example.com)
+  # Probes origin reachability; if it fails, flips FAILOVER_RECORD from A->IP to
+  # CNAME->tunnel so traffic detours through the always-on tunnel. Idle until
+  # PRIMARY_IP/TUNNEL_TARGET (and HEALTH_URL for http mode) are set.
+  #
+  # PROBE_MODE "http" (default) GETs HEALTH_URL THROUGH Cloudflare, so the probe
+  # crosses the inbound edge->origin hop that a datacenter DDoS blocks — this is
+  # what lets the watcher run on THIS host and still detect the outage. Point
+  # HEALTH_URL at a permanent, direct-to-IP proxied hostname (never flipped), e.g.
+  # a record  origin-direct.example.com  A(proxied) -> your IP.
+  # PROBE_MODE "tcp" connects straight to the IP and MUST run off-host.
+  FAILOVER_RECORD: "*.example.com"          # the wildcard clients hit
   PRIMARY_IP: ""                            # this server's public IP (A record when healthy)
   TUNNEL_TARGET: ""                         # <tunnel-uuid>.cfargotunnel.com (CNAME on failover)
-  PING_TARGET: ""                           # host:port to probe; empty = PRIMARY_IP:443
+  PROBE_MODE: "http"                        # http | tcp
+  HEALTH_URL: ""                            # http mode: https://origin-direct.example.com
+  PING_TARGET: ""                           # tcp mode: host:port; empty = PRIMARY_IP:443
   FAIL_THRESHOLD: "3"
   RECOVER_THRESHOLD: "3"
   CHECK_INTERVAL_SECONDS: "10"
