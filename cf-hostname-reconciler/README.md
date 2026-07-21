@@ -94,6 +94,24 @@ creates/removes custom hostnames with `ssl: { method: "http", type: "dv" }`.
 | `HEALTH_PORT` | `8080` | |
 | `DOCKER_SOCKET` | `/var/run/docker.sock` | Docker socket path |
 
+## Docker socket permissions
+
+The image runs as a non-root user, so it needs the host's `docker` group to read
+`/var/run/docker.sock`. Without it you get `EACCES ... /var/run/docker.sock` and the
+container stays `unhealthy`. Find the GID and add it to the service:
+
+```bash
+getent group docker | cut -d: -f3   # e.g. 999
+```
+
+```yaml
+  cf-reconciler:
+    group_add:
+      - "999"   # the GID from the command above
+```
+
+Alternative: `user: "0:0"` to run as root (simpler, less isolated).
+
 ## Triggers
 
 `docker events` (`start`, `die`, `destroy`, `update`) with a ~5s debounce, plus a reconcile
